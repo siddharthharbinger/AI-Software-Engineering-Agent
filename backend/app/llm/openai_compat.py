@@ -16,7 +16,7 @@ from app.llm.protocol import (
 
 class OpenAICompatProvider(LLMProvider):
     """Unified provider client for any OpenAI-compatible /chat/completions endpoint:
-    Ollama (local), Groq, OpenRouter, Google Gemini."""
+    Groq, OpenRouter, Google Gemini."""
 
     def __init__(
         self,
@@ -37,14 +37,8 @@ class OpenAICompatProvider(LLMProvider):
         self._client = client
 
     def is_configured(self) -> bool:
-        """Check if required endpoint and credentials are provided."""
-        if not self.base_url:
-            return False
-        # Ollama does not require an API key
-        if self.name == "ollama":
-            return bool(self.model)
-        # All cloud providers require both API key and model
-        return bool(self.api_key and self.model)
+        """Check if required endpoint, API key, and model are provided."""
+        return bool(self.base_url and self.api_key and self.model)
 
     def _get_endpoint_url(self) -> str:
         if self.base_url.endswith("/chat/completions"):

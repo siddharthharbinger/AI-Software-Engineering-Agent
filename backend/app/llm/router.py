@@ -55,7 +55,7 @@ class CircuitBreaker:
 
 
 class LLMRouter:
-    """Provider-agnostic router with automatic 4-way failover,
+    """Provider-agnostic router with automatic 3-way failover (Groq, OpenRouter, Gemini),
     per-provider circuit breaker cooldowns, and structured telemetry."""
 
     def __init__(
@@ -245,7 +245,7 @@ class LLMRouter:
 
 
 def create_default_router(settings: Optional[Settings] = None) -> LLMRouter:
-    """Factory creating the 4-way failover router initialized from application settings."""
+    """Factory creating the 3-way failover router (Groq, OpenRouter, Gemini) initialized from application settings."""
     cfg = settings or get_settings()
     priority_order = cfg.provider_priority_list
 
@@ -256,14 +256,6 @@ def create_default_router(settings: Optional[Settings] = None) -> LLMRouter:
         return 99
 
     providers: List[LLMProvider] = [
-        OpenAICompatProvider(
-            name="ollama",
-            base_url=cfg.OLLAMA_BASE_URL,
-            api_key=cfg.OLLAMA_API_KEY,
-            model=cfg.OLLAMA_MODEL,
-            priority=get_priority("ollama"),
-            timeout=cfg.LLM_TIMEOUT_SECONDS,
-        ),
         OpenAICompatProvider(
             name="groq",
             base_url=cfg.GROQ_BASE_URL,
@@ -295,3 +287,4 @@ def create_default_router(settings: Optional[Settings] = None) -> LLMRouter:
         default_rate_limit_cooldown=cfg.CIRCUIT_RATE_LIMIT_COOLDOWN_SECONDS,
         default_unavailable_cooldown=cfg.CIRCUIT_DEFAULT_COOLDOWN_SECONDS,
     )
+

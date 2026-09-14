@@ -17,12 +17,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "insecure-dev-secret-key-change-in-production"
 
     # LLM Router Settings
-    LLM_PROVIDER_PRIORITY: str = "ollama,groq,openrouter,gemini"
-
-    # Provider: Ollama (Local)
-    OLLAMA_BASE_URL: str = "http://localhost:11434/v1"
-    OLLAMA_MODEL: str = "qwen2.5-coder:14b"
-    OLLAMA_API_KEY: str = "ollama"  # Ollama doesn't require a key, dummy key works for compat
+    LLM_PROVIDER_PRIORITY: str = "groq,openrouter,gemini"
 
     # Provider: Groq
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"

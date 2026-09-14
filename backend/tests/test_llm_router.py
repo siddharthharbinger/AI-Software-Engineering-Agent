@@ -70,14 +70,14 @@ class MockProvider:
 @pytest.mark.asyncio
 async def test_primary_provider_serves_request():
     """Verify provider with highest priority (lowest index) serves request when healthy."""
-    p1 = MockProvider(name="ollama", priority=0, return_content="ollama response")
-    p2 = MockProvider(name="groq", priority=1, return_content="groq response")
+    p1 = MockProvider(name="groq", priority=0, return_content="groq response")
+    p2 = MockProvider(name="openrouter", priority=1, return_content="openrouter response")
     router = LLMRouter(providers=[p1, p2])
 
     resp = await router.complete([ChatMessage(role="user", content="hello")])
 
-    assert resp.provider == "ollama"
-    assert resp.content == "ollama response"
+    assert resp.provider == "groq"
+    assert resp.content == "groq response"
     assert p1.call_count == 1
     assert p2.call_count == 0
 
@@ -134,43 +134,43 @@ async def test_circuit_breaker_skips_cooling_provider_on_subsequent_call():
 async def test_circuit_breaker_recovers_after_cooldown():
     """Provider circuit resets and accepts requests once cooldown elapses."""
     p1 = MockProvider(
-        name="ollama",
+        name="groq",
         priority=0,
-        side_effect=RateLimitError("Temporary rate limit", retry_after=0.05, provider="ollama"),
+        side_effect=RateLimitError("Temporary rate limit", retry_after=0.05, provider="groq"),
     )
-    p2 = MockProvider(name="groq", priority=1, return_content="groq fallback")
+    p2 = MockProvider(name="openrouter", priority=1, return_content="openrouter fallback")
     router = LLMRouter(providers=[p1, p2])
 
     # First call trips p1
     await router.complete([ChatMessage(role="user", content="call 1")])
-    assert router.get_status()["ollama"]["circuit_open"] is True
+    assert router.get_status()["groq"]["circuit_open"] is True
 
     # Allow cooldown (0.05s) to expire
     await asyncio.sleep(0.08)
 
     # Now make p1 healthy
     p1.side_effect = None
-    p1.return_content = "ollama recovered"
+    p1.return_content = "groq recovered"
 
     resp = await router.complete([ChatMessage(role="user", content="call 2")])
-    assert resp.provider == "ollama"
-    assert resp.content == "ollama recovered"
+    assert resp.provider == "groq"
+    assert resp.content == "groq recovered"
     assert p1.call_count == 2
-    assert router.get_status()["ollama"]["circuit_open"] is False
+    assert router.get_status()["groq"]["circuit_open"] is False
 
 
 @pytest.mark.asyncio
 async def test_5xx_unavailable_and_timeout_failover():
     """Verify 5xx server errors and timeouts trip circuit and fail over."""
     p1 = MockProvider(
-        name="ollama",
+        name="groq",
         priority=0,
         side_effect=ProviderUnavailableError("Connection refused", status_code=503),
     )
     p2 = MockProvider(
-        name="groq",
+        name="openrouter",
         priority=1,
-        side_effect=ProviderTimeoutError("Groq request timed out"),
+        side_effect=ProviderTimeoutError("OpenRouter request timed out"),
     )
     p3 = MockProvider(name="gemini", priority=2, return_content="gemini success")
     router = LLMRouter(providers=[p1, p2, p3])
@@ -187,16 +187,16 @@ async def test_5xx_unavailable_and_timeout_failover():
 @pytest.mark.asyncio
 async def test_all_providers_exhausted_raises_error():
     """Verify AllProvidersExhaustedError is raised when all providers fail."""
-    p1 = MockProvider(name="ollama", priority=0, side_effect=ProviderUnavailableError("Down"))
-    p2 = MockProvider(name="groq", priority=1, side_effect=RateLimitError("429"))
+    p1 = MockProvider(name="groq", priority=0, side_effect=ProviderUnavailableError("Down"))
+    p2 = MockProvider(name="openrouter", priority=1, side_effect=RateLimitError("429"))
     router = LLMRouter(providers=[p1, p2])
 
     with pytest.raises(AllProvidersExhaustedError) as exc_info:
         await router.complete([ChatMessage(role="user", content="test")])
 
     err = exc_info.value
-    assert "ollama" in err.attempted_providers
     assert "groq" in err.attempted_providers
+    assert "openrouter" in err.attempted_providers
     assert isinstance(err.last_error, RateLimitError)
 
 
@@ -216,16 +216,16 @@ async def test_unconfigured_providers_are_skipped():
 @pytest.mark.asyncio
 async def test_dynamic_priority_reordering():
     """Verify router can dynamically update provider priority order."""
-    p1 = MockProvider(name="ollama", priority=0, return_content="ollama")
+    p1 = MockProvider(name="groq", priority=0, return_content="groq")
     p2 = MockProvider(name="gemini", priority=1, return_content="gemini")
     router = LLMRouter(providers=[p1, p2])
 
-    # Default order: ollama first
+    # Default order: groq first
     r1 = await router.complete([ChatMessage(role="user", content="1")])
-    assert r1.provider == "ollama"
+    assert r1.provider == "groq"
 
     # Reorder dynamically: gemini first
-    router.set_priority(["gemini", "ollama"])
+    router.set_priority(["gemini", "groq"])
     r2 = await router.complete([ChatMessage(role="user", content="2")])
     assert r2.provider == "gemini"
 
@@ -302,28 +302,38 @@ async def test_openai_compat_provider_429_with_retry_after():
 
 
 @pytest.mark.asyncio
+async def test_openai_compat_requires_api_key():
+    """Verify provider is NOT configured if api_key is missing (no dead fallback branches)."""
+    p_no_key = OpenAICompatProvider(
+        name="groq",
+        base_url="https://api.groq.com/openai/v1",
+        api_key="",
+        model="llama-3.3-70b-versatile",
+    )
+    assert p_no_key.is_configured() is False
+
+
+@pytest.mark.asyncio
 async def test_create_default_router_from_settings():
-    """Verify default router factory instantiates all 4 providers in configured order."""
+    """Verify default router factory instantiates 3 providers in configured order."""
     settings = Settings(
-        LLM_PROVIDER_PRIORITY="gemini,groq,ollama,openrouter",
+        LLM_PROVIDER_PRIORITY="gemini,groq,openrouter",
         GEMINI_API_KEY="test-gemini-key",
         GROQ_API_KEY="test-groq-key",
     )
     router = create_default_router(settings)
 
     providers = router.providers
-    assert len(providers) == 4
+    assert len(providers) == 3
     # Highest priority first
     assert providers[0].name == "gemini"
     assert providers[1].name == "groq"
-    assert providers[2].name == "ollama"
-    assert providers[3].name == "openrouter"
+    assert providers[2].name == "openrouter"
 
     # Verify configured check
     assert router._providers["gemini"].is_configured() is True
     assert router._providers["groq"].is_configured() is True
     assert router._providers["openrouter"].is_configured() is False  # No key
-    assert router._providers["ollama"].is_configured() is True  # Ollama doesn't need key
 
 
 @pytest.mark.asyncio

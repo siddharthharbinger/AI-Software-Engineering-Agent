@@ -53,20 +53,6 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: agent-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   api:
     build:
       context: ./backend
@@ -78,7 +64,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_platform}
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
     ports:
       - "8000:8000"
     depends_on:
@@ -104,7 +89,6 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_platform}
       - REDIS_URL=redis://redis:6379/0
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,4 +111,4 @@ volumes:
   postgres_data:
   redis_data:
   gitea_data:
-  ollama_data:
+
