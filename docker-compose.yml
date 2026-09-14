@@ -60,7 +60,7 @@ services:
     container_name: agent-api
     restart: unless-stopped
     env_file:
-      - .env.example
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_platform}
       - REDIS_URL=redis://redis:6379/0
@@ -85,7 +85,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
     env_file:
-      - .env.example
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_platform}
       - REDIS_URL=redis://redis:6379/0
