@@ -1,6 +1,5 @@
 from functools import lru_cache
-from typing import List
-from pydantic import Field
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +16,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "insecure-dev-secret-key-change-in-production"
 
     # LLM Router Settings
-    LLM_PROVIDER_PRIORITY: str = "groq,openrouter,gemini"
+    LLM_PROVIDER_PRIORITY: str = "groq,openrouter,gemini,mistral"
 
     # Provider: Groq
     GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
@@ -33,6 +32,12 @@ class Settings(BaseSettings):
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    # Provider: Mistral
+    MISTRAL_BASE_URL: str = "https://api.mistral.ai/v1"
+    MISTRAL_API_KEY: str = ""
+    MISTRAL_MODEL: str = "codestral-latest"
+    MISTRAL_MAX_RPM: int | None = 2
 
     # Circuit Breakers
     CIRCUIT_DEFAULT_COOLDOWN_SECONDS: float = 30.0
@@ -64,7 +69,7 @@ class Settings(BaseSettings):
     SANDBOX_MAX_FILES_TOUCHED: int = 50
 
     @property
-    def provider_priority_list(self) -> List[str]:
+    def provider_priority_list(self) -> list[str]:
         return [p.strip().lower() for p in self.LLM_PROVIDER_PRIORITY.split(",") if p.strip()]
 
 

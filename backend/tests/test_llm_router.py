@@ -1,24 +1,22 @@
 import asyncio
 import json
-import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import httpx
 import pytest
 
+from app.core.config import Settings
+from app.llm.openai_compat import OpenAICompatProvider
 from app.llm.protocol import (
     AllProvidersExhaustedError,
     ChatMessage,
-    LLMError,
-    LLMProvider,
     LLMResponse,
     LLMUsage,
     ProviderTimeoutError,
     ProviderUnavailableError,
     RateLimitError,
 )
-from app.llm.openai_compat import OpenAICompatProvider
 from app.llm.router import LLMRouter, create_default_router
-from app.core.config import Settings
 
 
 class MockProvider:
@@ -30,8 +28,9 @@ class MockProvider:
         priority: int = 10,
         model: str = "mock-model",
         configured: bool = True,
-        side_effect: Optional[Any] = None,
+        side_effect: Any | None = None,
         return_content: str = "mock completion",
+        max_rpm: int | None = None,
     ):
         self.name = name
         self.priority = priority
@@ -39,13 +38,14 @@ class MockProvider:
         self._configured = configured
         self.side_effect = side_effect
         self.return_content = return_content
+        self.max_rpm = max_rpm
         self.call_count = 0
-        self.last_call_messages: Optional[List[Any]] = None
+        self.last_call_messages: list[Any] | None = None
 
     def is_configured(self) -> bool:
         return self._configured
 
-    async def complete(self, messages: List[Any], **kwargs: Any) -> LLMResponse:
+    async def complete(self, messages: list[Any], **kwargs: Any) -> LLMResponse:
         self.call_count += 1
         self.last_call_messages = messages
 
@@ -315,25 +315,106 @@ async def test_openai_compat_requires_api_key():
 
 @pytest.mark.asyncio
 async def test_create_default_router_from_settings():
-    """Verify default router factory instantiates 3 providers in configured order."""
+    """Verify default router factory instantiates 4 providers in configured order."""
     settings = Settings(
-        LLM_PROVIDER_PRIORITY="gemini,groq,openrouter",
+        LLM_PROVIDER_PRIORITY="gemini,groq,openrouter,mistral",
         GEMINI_API_KEY="test-gemini-key",
         GROQ_API_KEY="test-groq-key",
+        OPENROUTER_API_KEY="",
+        MISTRAL_API_KEY="test-mistral-key",
     )
     router = create_default_router(settings)
 
     providers = router.providers
-    assert len(providers) == 3
+    assert len(providers) == 4
     # Highest priority first
     assert providers[0].name == "gemini"
     assert providers[1].name == "groq"
     assert providers[2].name == "openrouter"
+    assert providers[3].name == "mistral"
 
     # Verify configured check
     assert router._providers["gemini"].is_configured() is True
     assert router._providers["groq"].is_configured() is True
     assert router._providers["openrouter"].is_configured() is False  # No key
+    assert router._providers["mistral"].is_configured() is True
+    assert router._providers["mistral"].max_rpm == 2
+
+
+@pytest.mark.asyncio
+async def test_mistral_serves_as_last_resort():
+    """Verify router fails through Groq, OpenRouter, and Gemini and serves request via Mistral."""
+    groq = MockProvider(
+        name="groq",
+        priority=0,
+        side_effect=RateLimitError("Groq 429 rate limit", retry_after=60, provider="groq"),
+    )
+    openrouter = MockProvider(
+        name="openrouter",
+        priority=1,
+        side_effect=ProviderUnavailableError("OpenRouter 502 bad gateway", provider="openrouter"),
+    )
+    gemini = MockProvider(
+        name="gemini",
+        priority=2,
+        side_effect=ProviderTimeoutError("Gemini timed out", provider="gemini"),
+    )
+    mistral = MockProvider(
+        name="mistral",
+        priority=3,
+        model="codestral-latest",
+        return_content="codestral solution",
+        max_rpm=2,
+    )
+    router = LLMRouter(providers=[groq, openrouter, gemini, mistral])
+
+    resp = await router.complete([ChatMessage(role="user", content="write code")])
+
+    assert resp.provider == "mistral"
+    assert resp.content == "codestral solution"
+    assert resp.model == "codestral-latest"
+    assert groq.call_count == 1
+    assert openrouter.call_count == 1
+    assert gemini.call_count == 1
+    assert mistral.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_proactive_rpm_throttle_skips_before_429():
+    """Verify router proactively throttles a provider exceeding max_rpm without invoking it."""
+    # Mistral configured with max_rpm=2
+    mistral = MockProvider(
+        name="mistral",
+        priority=0,
+        return_content="mistral response",
+        max_rpm=2,
+    )
+    fallback = MockProvider(
+        name="openrouter",
+        priority=1,
+        return_content="openrouter fallback response",
+    )
+    router = LLMRouter(providers=[mistral, fallback])
+
+    # First request: within RPM limit (1/2) -> served by mistral
+    resp1 = await router.complete([ChatMessage(role="user", content="req 1")])
+    assert resp1.provider == "mistral"
+    assert mistral.call_count == 1
+    assert fallback.call_count == 0
+
+    # Second request: within RPM limit (2/2) -> served by mistral
+    resp2 = await router.complete([ChatMessage(role="user", content="req 2")])
+    assert resp2.provider == "mistral"
+    assert mistral.call_count == 2
+    assert fallback.call_count == 0
+
+    # Third request: Mistral reaches max_rpm=2 within sliding window.
+    # Router must proactively skip Mistral without calling its complete() method.
+    resp3 = await router.complete([ChatMessage(role="user", content="req 3")])
+    assert resp3.provider == "openrouter"
+    assert resp3.content == "openrouter fallback response"
+    assert mistral.call_count == 2  # Mistral was NOT called a 3rd time!
+    assert fallback.call_count == 1
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+
 import httpx
 
 from app.llm.protocol import (
@@ -16,7 +17,7 @@ from app.llm.protocol import (
 
 class OpenAICompatProvider(LLMProvider):
     """Unified provider client for any OpenAI-compatible /chat/completions endpoint:
-    Groq, OpenRouter, Google Gemini."""
+    Groq, OpenRouter, Google Gemini, Mistral AI."""
 
     def __init__(
         self,
@@ -26,7 +27,8 @@ class OpenAICompatProvider(LLMProvider):
         model: str = "",
         priority: int = 10,
         timeout: float = 45.0,
-        client: Optional[httpx.AsyncClient] = None,
+        client: httpx.AsyncClient | None = None,
+        max_rpm: int | None = None,
     ):
         self.name = name.lower().strip()
         self.base_url = base_url.rstrip("/")
@@ -35,6 +37,7 @@ class OpenAICompatProvider(LLMProvider):
         self.priority = priority
         self.timeout = timeout
         self._client = client
+        self.max_rpm = max_rpm
 
     def is_configured(self) -> bool:
         """Check if required endpoint, API key, and model are provided."""
@@ -45,7 +48,7 @@ class OpenAICompatProvider(LLMProvider):
             return self.base_url
         return f"{self.base_url}/chat/completions"
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
         }
@@ -59,9 +62,9 @@ class OpenAICompatProvider(LLMProvider):
         return headers
 
     def _format_messages(
-        self, messages: List[Union[ChatMessage, Dict[str, Any]]]
-    ) -> List[Dict[str, str]]:
-        formatted: List[Dict[str, str]] = []
+        self, messages: list[ChatMessage | dict[str, Any]]
+    ) -> list[dict[str, str]]:
+        formatted: list[dict[str, str]] = []
         for msg in messages:
             if isinstance(msg, ChatMessage):
                 formatted.append(msg.to_dict())
@@ -71,7 +74,7 @@ class OpenAICompatProvider(LLMProvider):
                 formatted.append({"role": "user", "content": str(msg)})
         return formatted
 
-    def _extract_retry_after(self, response: httpx.Response) -> Optional[float]:
+    def _extract_retry_after(self, response: httpx.Response) -> float | None:
         retry_header = response.headers.get("retry-after")
         if retry_header:
             try:
@@ -94,7 +97,7 @@ class OpenAICompatProvider(LLMProvider):
 
     async def complete(
         self,
-        messages: List[Union[ChatMessage, Dict[str, Any]]],
+        messages: list[ChatMessage | dict[str, Any]],
         **kwargs: Any,
     ) -> LLMResponse:
         endpoint = self._get_endpoint_url()

@@ -1,14 +1,14 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Protocol, Union
+from typing import Any, Protocol
 
 
 @dataclass
 class ChatMessage:
     role: str  # "system", "user", "assistant", "tool"
     content: str
-    name: Optional[str] = None
+    name: str | None = None
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         data = {"role": self.role, "content": self.content}
         if self.name:
             data["name"] = self.name
@@ -28,9 +28,9 @@ class LLMResponse:
     provider: str
     model: str
     latency_ms: float = 0.0
-    usage: Optional[LLMUsage] = None
-    finish_reason: Optional[str] = None
-    raw: Optional[Dict[str, Any]] = field(default=None, repr=False)
+    usage: LLMUsage | None = None
+    finish_reason: str | None = None
+    raw: dict[str, Any] | None = field(default=None, repr=False)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ class LLMResponse:
 
 class LLMError(Exception):
     """Base exception for LLM operations."""
-    def __init__(self, message: str, provider: Optional[str] = None):
+    def __init__(self, message: str, provider: str | None = None):
         super().__init__(message)
         self.provider = provider
 
@@ -49,8 +49,8 @@ class RateLimitError(LLMError):
     def __init__(
         self,
         message: str = "Rate limit exceeded",
-        retry_after: Optional[float] = None,
-        provider: Optional[str] = None,
+        retry_after: float | None = None,
+        provider: str | None = None,
     ):
         super().__init__(message, provider=provider)
         self.retry_after = retry_after
@@ -61,8 +61,8 @@ class ProviderUnavailableError(LLMError):
     def __init__(
         self,
         message: str = "Provider service unavailable",
-        status_code: Optional[int] = None,
-        provider: Optional[str] = None,
+        status_code: int | None = None,
+        provider: str | None = None,
     ):
         super().__init__(message, provider=provider)
         self.status_code = status_code
@@ -73,7 +73,7 @@ class ProviderTimeoutError(LLMError):
     def __init__(
         self,
         message: str = "Provider request timed out",
-        provider: Optional[str] = None,
+        provider: str | None = None,
     ):
         super().__init__(message, provider=provider)
 
@@ -82,8 +82,8 @@ class AllProvidersExhaustedError(LLMError):
     """Raised when all configured providers fail or are in circuit-open cooldown."""
     def __init__(
         self,
-        last_error: Optional[Exception] = None,
-        attempted_providers: Optional[List[str]] = None,
+        last_error: Exception | None = None,
+        attempted_providers: list[str] | None = None,
     ):
         providers_str = ", ".join(attempted_providers or [])
         msg = f"All LLM providers exhausted. Attempted: [{providers_str}]. Last error: {last_error}"
@@ -100,6 +100,7 @@ class LLMProvider(Protocol):
     name: str
     priority: int  # lower = tried first
     model: str
+    max_rpm: int | None = None
 
     def is_configured(self) -> bool:
         """Returns True if the provider has all required configuration (e.g. valid API key or endpoint)."""
@@ -107,7 +108,7 @@ class LLMProvider(Protocol):
 
     async def complete(
         self,
-        messages: List[Union[ChatMessage, Dict[str, Any]]],
+        messages: list[ChatMessage | dict[str, Any]],
         **kwargs: Any,
     ) -> LLMResponse:
         """Sends chat messages to the provider's /chat/completions endpoint."""
