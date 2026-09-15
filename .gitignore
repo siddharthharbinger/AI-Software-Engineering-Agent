@@ -56,8 +56,8 @@ redis_data/
 gitea_data/
 ollama_data/
 
-# Prompt and markdown documents (keep README and architecture doc)
-*.md
-!README.md
-!ai-swe-agent-architecture*.md
+# # Prompt and markdown documents (keep README and architecture doc)
+# *.md
+# !README.md
+# !ai-swe-agent-architecture*.md
 
